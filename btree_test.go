@@ -52,7 +52,7 @@ func (page *test_page) Link(pos int) IAddress          { return page.links[pos] 
 func (page *test_page) SetLink(pos int, link IAddress) { page.links[pos] = link.(int) }
 func (page *test_page) Key(pos int) IKey               { return page.keys[pos] }
 func (page *test_page) SetKey(pos int, key IKey)       { page.keys[pos] = key.(int) }
-func (page *test_page) Value(pos int) IValue           { return page.keys[pos] }
+func (page *test_page) Value(pos int) IValue           { return page.values[pos] }
 func (page *test_page) SetValue(pos int, value IValue) { page.values[pos] = value.(int) }
 func (page *test_page) Insert(key IKey, value IValue, link IAddress, pos int) {
 	for i := page.count - 1; i >= pos && i >= 0; i-- {
@@ -193,6 +193,23 @@ func TestInsert(t *testing.T) {
 			}
 		})
 	}
+	t.Run("Loop", func(t *testing.T) {
+		first := true
+		old := 0
+		num := Loop(tree, true, nil, nil, func(key IKey, value IValue) {
+			if !first {
+				if !(old < key.(int)) {
+					t.Errorf("%v < %v", old, key.(int))
+				}
+			}
+			first = false
+			old = key.(int)
+			//fmt.Println(key, value)
+		})
+		if num != 13 {
+			t.Errorf("Count %v, want %v", num, 13)
+		}
+	})
 }
 func TestInsert2(t *testing.T) {
 	tree := newBTree()
@@ -204,4 +221,80 @@ func TestInsert2(t *testing.T) {
 			}
 		})
 	}
+	t.Run("Loop ACS", func(t *testing.T) {
+		for i := 100; i <= 500; i++ {
+			first := true
+			old := 0
+			num := Loop(tree, true, 100, i, func(key IKey, value IValue) {
+				if !first {
+					if !(old < key.(int)) {
+						t.Errorf("%v < %v", old, key.(int))
+					}
+				}
+				first = false
+				old = key.(int)
+				//fmt.Println(key, value)
+			})
+			if num != (i - 100 + 1) {
+				t.Errorf("Count %v, want %v", num, (i - 100 + 1))
+			}
+		}
+	})
+	t.Run("Loop ACS 2", func(t *testing.T) {
+		for i := 100; i <= 500; i++ {
+			first := true
+			old := 0
+			num := Loop(tree, true, i, i+200, func(key IKey, value IValue) {
+				if !first {
+					if !(old < key.(int)) {
+						t.Errorf("%v < %v", old, key.(int))
+					}
+				}
+				first = false
+				old = key.(int)
+				//fmt.Println(key, value)
+			})
+			if num != 201 {
+				t.Errorf("Count %v, want %v", num, 201)
+			}
+		}
+	})
+	t.Run("Loop DESC", func(t *testing.T) {
+		for i := 100; i <= 500; i++ {
+			first := true
+			old := 0
+			num := Loop(tree, false, 100, i, func(key IKey, value IValue) {
+				if !first {
+					if !(old > key.(int)) {
+						t.Errorf("%v > %v", old, key.(int))
+					}
+				}
+				first = false
+				old = key.(int)
+				//fmt.Println(key, value)
+			})
+			if num != (i - 100 + 1) {
+				t.Errorf("Count %v, want %v", num, (i - 100 + 1))
+			}
+		}
+	})
+	t.Run("Loop DESC 2", func(t *testing.T) {
+		for i := 100; i <= 500; i++ {
+			first := true
+			old := 0
+			num := Loop(tree, false, i, i+200, func(key IKey, value IValue) {
+				if !first {
+					if !(old > key.(int)) {
+						t.Errorf("%v > %v", old, key.(int))
+					}
+				}
+				first = false
+				old = key.(int)
+				//fmt.Println(key, value)
+			})
+			if num != 201 {
+				t.Errorf("Count %v, want %v", num, 201)
+			}
+		}
+	})
 }

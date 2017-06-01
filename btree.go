@@ -52,7 +52,7 @@ func findKey(tree IBTree, page IPage, key IKey) (int, bool) {
 	if right-left < 0 {
 		return -1, false
 	}
-	var pos int = left
+	pos := left
 	for right-left >= 0 {
 		pos = (right + left) / 2
 		if tree.EqKey(key, page.Key(pos)) {
@@ -81,8 +81,7 @@ func insertNonFull(tree IBTree, page IPage, key IKey, value IValue) bool {
 		page.Write()
 		return true
 	}
-	var xPage IPage
-	xPage = tree.Page(page.Link(pos))
+	xPage := tree.Page(page.Link(pos))
 	if xPage.Count() == xPage.MaxCount() {
 		splitChild(tree, page, xPage, pos)
 		if tree.LessKey(page.Key(pos), key) {
@@ -106,11 +105,9 @@ func ContainKey(tree IBTree, key IKey) bool {
 	return contain(tree, tree.Root(), key)
 }
 func Insert(tree IBTree, key IKey, value IValue) bool {
-	var page IPage
-	page = tree.Root()
+	page := tree.Root()
 	if page.Count() == page.MaxCount() {
-		var ypage IPage
-		ypage = tree.NewPage()
+		ypage := tree.NewPage()
 		ypage.SetLeaf(page.Leaf())
 		ypage.CopyItems(0, page, 0, page.Count())
 		ypage.SetCount(page.Count())
@@ -121,4 +118,71 @@ func Insert(tree IBTree, key IKey, value IValue) bool {
 		splitChild(tree, page, ypage, 0)
 	}
 	return insertNonFull(tree, page, key, value)
+}
+func loopPageASC(tree IBTree, page IPage, keyMin IKey, keyMax IKey, loop func(key IKey, value IValue)) int {
+	var link IAddress
+	num := 0
+	start := 0
+	end := page.Count()
+	if keyMin != nil {
+		start, _ = findKey(tree, page, keyMin)
+	}
+	if keyMax != nil {
+		var eq bool
+		end, eq = findKey(tree, page, keyMax)
+		if eq {
+			end++
+		}
+	}
+	for i := start; i < end; i++ {
+		key := page.Key(i)
+		if !page.Leaf() {
+			link = page.Link(i)
+			num += loopPageASC(tree, tree.Page(link), keyMin, keyMax, loop)
+		}
+		num++
+		loop(key, page.Value(i))
+	}
+	if !page.Leaf() {
+		link = page.Link(end)
+		num += loopPageASC(tree, tree.Page(link), keyMin, keyMax, loop)
+	}
+	return num
+}
+func loopPageDESC(tree IBTree, page IPage, keyMin IKey, keyMax IKey, loop func(key IKey, value IValue)) int {
+	var link IAddress
+	num := 0
+	start := 0
+	end := page.Count()
+	if keyMin != nil {
+		start, _ = findKey(tree, page, keyMin)
+	}
+	if keyMax != nil {
+		var eq bool
+		end, eq = findKey(tree, page, keyMax)
+		if eq {
+			end++
+		}
+	}
+	for i := end - 1; i >= start; i-- {
+		key := page.Key(i)
+		if !page.Leaf() {
+			link = page.Link(i + 1)
+			num += loopPageDESC(tree, tree.Page(link), keyMin, keyMax, loop)
+		}
+		num++
+		loop(key, page.Value(i))
+	}
+
+	if !page.Leaf() {
+		link = page.Link(start)
+		num += loopPageDESC(tree, tree.Page(link), keyMin, keyMax, loop)
+	}
+	return num
+}
+func Loop(tree IBTree, ASC bool, keyMin IKey, keyMax IKey, loop func(key IKey, value IValue)) int {
+	if ASC {
+		return loopPageASC(tree, tree.Root(), keyMin, keyMax, loop)
+	}
+	return loopPageDESC(tree, tree.Root(), keyMin, keyMax, loop)
 }
