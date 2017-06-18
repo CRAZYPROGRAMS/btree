@@ -34,12 +34,9 @@ func (page *test_page) SetCount(count int) { page.count = count }
 func (page *test_page) MaxCount() int      { return len(page.keys) }
 func (page *test_page) CopyItems(pos int, psource IPage, possource int, count int) {
 	p2 := psource.(*test_page)
-	for index := 0; index < count; index++ {
-		page.keys[pos+index] = p2.keys[possource+index]
-		page.values[pos+index] = p2.values[possource+index]
-		page.links[pos+index] = p2.links[possource+index]
-	}
-	page.links[pos+count] = p2.links[possource+count]
+	copy(page.keys[pos:pos+count], p2.keys[possource:possource+count])
+	copy(page.values[pos:pos+count], p2.values[possource:possource+count])
+	copy(page.links[pos+1:pos+1+count], p2.links[possource+1:possource+1+count])
 }
 func (page *test_page) ClearItems(pos int, count int) {
 	for index := 0; index < count; index++ {
@@ -54,11 +51,12 @@ func (page *test_page) Key(pos int) IKey               { return page.keys[pos] }
 func (page *test_page) SetKey(pos int, key IKey)       { page.keys[pos] = key.(int) }
 func (page *test_page) Value(pos int) IValue           { return page.values[pos] }
 func (page *test_page) SetValue(pos int, value IValue) { page.values[pos] = value.(int) }
-func (page *test_page) Insert(key IKey, value IValue, link IAddress, pos int) {
+
+/*func (page *test_page) Insert(key IKey, value IValue, link IAddress, pos int) {
 	for i := page.count - 1; i >= pos && i >= 0; i-- {
 		page.keys[i+1] = page.keys[i]
 		page.values[i+1] = page.values[i]
-		page.keys[i+1] = page.keys[i]
+		page.links[i+1] = page.links[i]
 	}
 	page.count++
 	page.keys[pos] = key.(int)
@@ -67,29 +65,33 @@ func (page *test_page) Insert(key IKey, value IValue, link IAddress, pos int) {
 	if page.links[pos+1], ok = link.(int); !ok {
 		page.links[pos+1] = 0
 	}
-}
+}*/
 
 type test_btree struct {
 	IBTree
-	pageid   int
-	root     *test_page
-	pages    map[int]*test_page
+	root     IPage
+	pages    []IPage
 	sizepage int
 }
 
 func newBTree() *test_btree {
-	tree := &test_btree{pages: map[int]*test_page{}, pageid: 1}
-	tree.sizepage = 10
+	tree := &test_btree{pages: make([]IPage, 0, 10)}
+	tree.sizepage = 11
 	tree.root = tree.NewPage().(*test_page)
 	tree.root.SetLeaf(true)
 	return tree
 }
 func (tree *test_btree) Root() IPage { return tree.root }
 func (tree *test_btree) NewPage() IPage {
-	page := newPage(tree, tree.pageid, tree.sizepage)
-	tree.pageid++
-	tree.pages[page.address] = page
+	page := newPage(tree, len(tree.pages), tree.sizepage)
+	tree.pages = append(tree.pages, page)
 	return page
+}
+func (tree *test_btree) FreePage(page IPage) {
+	page.ClearItems(0, page.Count())
+	page.SetCount(0)
+	page.SetLeaf(false)
+	page.Write()
 }
 func (tree *test_btree) Page(Address IAddress) IPage {
 	a := Address.(int)
@@ -101,199 +103,372 @@ func (tree *test_btree) EqKey(key1 IKey, key2 IKey) bool {
 	v2 := key2.(int)
 	return v1 == v2
 }
-func TestInsert(t *testing.T) {
+func testLoop(t *testing.T, ASC bool, minInsert int, maxInsert int, minLoopKey IKey, maxLoopKey IKey) bool {
 	tree := newBTree()
-	type args struct {
-		tree  IBTree
-		key   IKey
-		value IValue
+	for i := minInsert; i <= maxInsert; i++ {
+		if got := Insert(tree, i, i+1000); !got {
+			t.Errorf("Insert(%v) = %v, want %v", i, got, true)
+			return false
+		}
 	}
-	type args2 struct {
-		tree IBTree
-		key  IKey
+	min := minInsert
+	max := maxInsert
+	if minLoopKey != nil && minLoopKey.(int) > min {
+		min = minLoopKey.(int)
 	}
-	tests1 := []struct {
-		name string
-		args args
-		want bool
-	}{
-		{name: "insert", args: args{key: 1, value: 1001, tree: tree}, want: true},
-		{name: "insert", args: args{key: 3, value: 1002, tree: tree}, want: true},
-		{name: "insert", args: args{key: 5, value: 1003, tree: tree}, want: true},
-		{name: "insert", args: args{key: 7, value: 1003, tree: tree}, want: true},
-		{name: "insert", args: args{key: 9, value: 1004, tree: tree}, want: true},
-		{name: "insert", args: args{key: 11, value: 1004, tree: tree}, want: true},
-		{name: "insert", args: args{key: 2, value: 1005, tree: tree}, want: true},
-		{name: "insert", args: args{key: 4, value: 1006, tree: tree}, want: true},
-		{name: "insert", args: args{key: 6, value: 1007, tree: tree}, want: true},
-		{name: "insert", args: args{key: 8, value: 1008, tree: tree}, want: true},
-		{name: "insert", args: args{key: 10, value: 1008, tree: tree}, want: true},
-		{name: "insert", args: args{key: 12, value: 1008, tree: tree}, want: true},
-		// TODO: Add test cases.
+	if maxLoopKey != nil && maxLoopKey.(int) < max {
+		max = maxLoopKey.(int)
 	}
-	tests2 := []struct {
-		name string
-		args args2
-		want bool
-	}{
-		{name: "contain", args: args2{key: 0, tree: tree}, want: false},
-		{name: "contain", args: args2{key: 1, tree: tree}, want: true},
-		{name: "contain", args: args2{key: 2, tree: tree}, want: true},
-		{name: "contain", args: args2{key: 3, tree: tree}, want: true},
-		{name: "contain", args: args2{key: 4, tree: tree}, want: true},
-		{name: "contain", args: args2{key: 5, tree: tree}, want: true},
-		{name: "contain", args: args2{key: 6, tree: tree}, want: true},
-		{name: "contain", args: args2{key: 7, tree: tree}, want: true},
-		{name: "contain", args: args2{key: 8, tree: tree}, want: true},
-		{name: "contain", args: args2{key: 9, tree: tree}, want: true},
-		{name: "contain", args: args2{key: 10, tree: tree}, want: true},
-		{name: "contain", args: args2{key: 11, tree: tree}, want: true},
-		{name: "contain", args: args2{key: 12, tree: tree}, want: true},
-		{name: "contain", args: args2{key: 13, tree: tree}, want: false},
-		// TODO: Add test cases.
+	count := max - min + 1
+	if count < 0 {
+		count = 0
 	}
-	tests3 := []struct {
-		name string
-		args args
-		want bool
-	}{
-		{name: "dub", args: args{key: 1, value: 2001, tree: tree}, want: false},
-		{name: "dub", args: args{key: 2, value: 2002, tree: tree}, want: false},
-		{name: "dub", args: args{key: 3, value: 2003, tree: tree}, want: false},
-		{name: "dub", args: args{key: 4, value: 2004, tree: tree}, want: false},
-		{name: "dub", args: args{key: 5, value: 2005, tree: tree}, want: false},
-		{name: "dub", args: args{key: 6, value: 2006, tree: tree}, want: false},
-		{name: "dub", args: args{key: 7, value: 2007, tree: tree}, want: false},
-		{name: "dub", args: args{key: 8, value: 2008, tree: tree}, want: false},
-		{name: "dub", args: args{key: 9, value: 2009, tree: tree}, want: false},
-		{name: "dub", args: args{key: 100, value: 2010, tree: tree}, want: true},
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests1 {
-		//fmt.Println(tt.name, tt.args.tree, tt.args.key, tt.args.value)
-		t.Run(tt.name, func(t *testing.T) {
-			if got := Insert(tt.args.tree, tt.args.key, tt.args.value); got != tt.want {
-				t.Errorf("Insert() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-	for _, tt := range tests2 {
-		//fmt.Println(tt.name, tt.args.tree, tt.args.key)
-		t.Run(tt.name, func(t *testing.T) {
-			if got := ContainKey(tt.args.tree, tt.args.key); got != tt.want {
-				t.Errorf("ContainKey() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-	for _, tt := range tests3 {
-		//fmt.Println(tt.name, tt.args.tree, tt.args.key, tt.args.value)
-		t.Run(tt.name, func(t *testing.T) {
-			if got := Insert(tt.args.tree, tt.args.key, tt.args.value); got != tt.want {
-				t.Errorf("Insert() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-	t.Run("Loop", func(t *testing.T) {
-		first := true
-		old := 0
-		num := Loop(tree, true, nil, nil, func(key IKey, value IValue) {
-			if !first {
-				if !(old < key.(int)) {
-					t.Errorf("%v < %v", old, key.(int))
+	minKey := 0
+	maxKey := 0
+	first := true
+	countKey := 0
+	perv := 0
+	countKey2 := Loop(tree, ASC, minLoopKey, maxLoopKey, func(key IKey, value IValue) {
+		if first {
+			minKey = key.(int)
+			maxKey = key.(int)
+			first = false
+			perv = key.(int)
+		} else {
+			if ASC {
+				if perv >= key.(int) {
+					t.Errorf("ASC %v < %v", perv, key.(int))
+					return
+				}
+			} else {
+				if perv <= key.(int) {
+					t.Errorf("DESC %v > %v", perv, key.(int))
+					return
 				}
 			}
-			first = false
-			old = key.(int)
-			//fmt.Println(key, value)
-		})
-		if num != 13 {
-			t.Errorf("Count %v, want %v", num, 13)
+			perv = key.(int)
+		}
+		if minKey > key.(int) {
+			minKey = key.(int)
+		}
+		if maxKey < key.(int) {
+			maxKey = key.(int)
+		}
+		countKey++
+	})
+	if countKey2 != countKey {
+		t.Errorf("count = %v, want %v", countKey2, countKey)
+		return false
+	}
+	if min > max && count == 0 {
+		return true
+	}
+	if minKey != min {
+		t.Errorf("MinKey = %v, want %v", minKey, min)
+		return false
+	}
+	if maxKey != max {
+		t.Errorf("MaxKey = %v, want %v", maxKey, max)
+		return false
+	}
+	if countKey != count {
+		t.Errorf("Count = %v, want %v", countKey, count)
+		return false
+	}
+	return true
+}
+func TestInsert(t *testing.T) {
+	t.Run("Insert to back", func(t *testing.T) {
+		tree := newBTree()
+		for i := 1; i <= 1000; i++ {
+			if got := Insert(tree, i, i+1000); !got {
+				t.Errorf("Insert(%v) = %v, want %v", i, got, true)
+				return
+			}
+		}
+		for i := 1; i <= 1000; i++ {
+			if got := Insert(tree, i, i+1000); got {
+				t.Errorf("Dub Insert(%v) = %v, want %v", i, got, true)
+				return
+			}
+		}
+		for i := -1000; i <= 0; i++ {
+			if got := ContainKey(tree, i); got {
+				t.Errorf("ContainKey(%v) = %v, want %v", i, got, false)
+				return
+			}
+		}
+		for i := 1; i <= 1000; i++ {
+			if got := ContainKey(tree, i); !got {
+				t.Errorf("ContainKey(%v) = %v, want %v", i, got, true)
+				return
+			}
+		}
+		for i := 1001; i <= 2000; i++ {
+			if got := ContainKey(tree, i); got {
+				t.Errorf("ContainKey(%v) = %v, want %v", i, got, false)
+				return
+			}
+		}
+	})
+	t.Run("Insert to front", func(t *testing.T) {
+		tree := newBTree()
+		for i := 1000; i >= 1; i-- {
+			if got := Insert(tree, i, i+1000); !got {
+				t.Errorf("Insert(%v) = %v, want %v", i, got, true)
+				return
+			}
+		}
+		for i := 1000; i >= 1; i-- {
+			if got := Insert(tree, i, i+1000); got {
+				t.Errorf("Dub Insert(%v) = %v, want %v", i, got, true)
+				return
+			}
+		}
+		for i := 0; i >= -1000; i-- {
+			if got := ContainKey(tree, i); got {
+				t.Errorf("ContainKey(%v) = %v, want %v", i, got, false)
+				return
+			}
+		}
+		for i := 1000; i >= 1; i-- {
+			if got := ContainKey(tree, i); !got {
+				t.Errorf("ContainKey(%v) = %v, want %v", i, got, true)
+				return
+			}
+		}
+		for i := 2000; i >= 1001; i-- {
+			if got := ContainKey(tree, i); got {
+				t.Errorf("ContainKey(%v) = %v, want %v", i, got, false)
+				return
+			}
+		}
+	})
+
+	t.Run("Delete", func(t *testing.T) {
+		tree := newBTree()
+		for i := 1000; i >= 1; i-- {
+			if got := Insert(tree, i, i+1000); !got {
+				t.Errorf("Insert(%v) = %v, want %v", i, got, true)
+				return
+			}
 		}
 	})
 }
-func TestInsert2(t *testing.T) {
-	tree := newBTree()
-	for i := 0; i < 1000; i++ {
-		//fmt.Println("TestInsert2", i)
-		t.Run("TestInsert2", func(t *testing.T) {
-			if got := Insert(tree, i, i+1000); !got {
-				t.Errorf("Insert() = %v, want %v", got, true)
-			}
-		})
-	}
-	t.Run("Loop ACS", func(t *testing.T) {
-		for i := 100; i <= 500; i++ {
-			first := true
-			old := 0
-			num := Loop(tree, true, 100, i, func(key IKey, value IValue) {
-				if !first {
-					if !(old < key.(int)) {
-						t.Errorf("%v < %v", old, key.(int))
-					}
-				}
-				first = false
-				old = key.(int)
-				//fmt.Println(key, value)
-			})
-			if num != (i - 100 + 1) {
-				t.Errorf("Count %v, want %v", num, (i - 100 + 1))
-			}
+func TestLoop(t *testing.T) {
+	t.Run("Loop ASC", func(t *testing.T) {
+		if !testLoop(t, true, 1, 1000, nil, nil) {
+			return
 		}
-	})
-	t.Run("Loop ACS 2", func(t *testing.T) {
-		for i := 100; i <= 500; i++ {
-			first := true
-			old := 0
-			num := Loop(tree, true, i, i+200, func(key IKey, value IValue) {
-				if !first {
-					if !(old < key.(int)) {
-						t.Errorf("%v < %v", old, key.(int))
-					}
-				}
-				first = false
-				old = key.(int)
-				//fmt.Println(key, value)
-			})
-			if num != 201 {
-				t.Errorf("Count %v, want %v", num, 201)
-			}
+		if !testLoop(t, true, 1, 1000, 500, nil) {
+			return
+		}
+		if !testLoop(t, true, 1, 1000, nil, 500) {
+			return
+		}
+		if !testLoop(t, true, 1, 1000, 500, 500) {
+			return
+		}
+		if !testLoop(t, true, 1, 1000, 500, 1) {
+			return
 		}
 	})
 	t.Run("Loop DESC", func(t *testing.T) {
-		for i := 100; i <= 500; i++ {
-			first := true
-			old := 0
-			num := Loop(tree, false, 100, i, func(key IKey, value IValue) {
-				if !first {
-					if !(old > key.(int)) {
-						t.Errorf("%v > %v", old, key.(int))
-					}
+		if !testLoop(t, false, 1, 1000, nil, nil) {
+			return
+		}
+		if !testLoop(t, false, 1, 1000, 500, nil) {
+			return
+		}
+		if !testLoop(t, false, 1, 1000, nil, 500) {
+			return
+		}
+		if !testLoop(t, false, 1, 1000, 500, 500) {
+			return
+		}
+		if !testLoop(t, false, 1, 1000, 500, 1) {
+			return
+		}
+	})
+}
+func TestLoopPage(t *testing.T) {
+	tree := newBTree()
+	for i := 1; i <= 1000; i++ {
+		if got := Insert(tree, i, i+1000); !got {
+			t.Errorf("Insert(%v) = %v, want %v", i, got, true)
+			return
+		}
+	}
+	count := 0
+	MaxLevel := 0
+	LeafMinMaxInit := true
+	LeafMinLevel := 0
+	LeafMaxLevel := 0
+	NumPage := 0
+	p := LoopPage(tree, func(page IPage, keyMin IKey, keyMax IKey, level int) {
+		NumPage++
+		count += page.Count()
+		if MaxLevel < level {
+			MaxLevel = level
+		}
+		if page.Leaf() {
+			if LeafMinMaxInit {
+				LeafMinLevel = level
+				LeafMaxLevel = level
+				LeafMinMaxInit = false
+			} else {
+				if LeafMinLevel > level {
+					LeafMinLevel = level
 				}
-				first = false
-				old = key.(int)
-				//fmt.Println(key, value)
-			})
-			if num != (i - 100 + 1) {
-				t.Errorf("Count %v, want %v", num, (i - 100 + 1))
+				if LeafMaxLevel < level {
+					LeafMaxLevel = level
+				}
 			}
 		}
 	})
-	t.Run("Loop DESC 2", func(t *testing.T) {
-		for i := 100; i <= 500; i++ {
-			first := true
-			old := 0
-			num := Loop(tree, false, i, i+200, func(key IKey, value IValue) {
-				if !first {
-					if !(old > key.(int)) {
-						t.Errorf("%v > %v", old, key.(int))
+	if MaxLevel != LeafMinLevel || LeafMinLevel != LeafMaxLevel {
+		t.Errorf("MaxLevel %v, LeafMin %v, LeafMax %v", MaxLevel, LeafMinLevel, LeafMaxLevel)
+	}
+	if p != NumPage {
+		t.Errorf("NumPage %v != %v", NumPage, p)
+	}
+	if count != 1000 {
+		t.Errorf("Count %v, want %v", count, 1000)
+	}
+}
+func TestGetValue(t *testing.T) {
+	tree := newBTree()
+	for i := 1; i <= 1000; i++ {
+		if got := Insert(tree, i, i+1000); !got {
+			t.Errorf("Insert(%v) = %v, want %v", i, got, true)
+			return
+		}
+	}
+	for i := -1000; i <= 0; i++ {
+		if _, ok := GetValue(tree, i); ok {
+			t.Errorf("GetValue(%v)  ok=%v, want %v", i, ok, true)
+			return
+		}
+	}
+	for i := 1; i <= 1000; i++ {
+		if got, ok := GetValue(tree, i); !ok || (ok && got.(int) != i+1000) {
+			t.Errorf("GetValue(%v) = %v, want %v, ok=%v, want %v", i, got, i+1000, ok, true)
+			return
+		}
+	}
+	for i := 1001; i <= 2000; i++ {
+		if _, ok := GetValue(tree, i); ok {
+			t.Errorf("GetValue(%v)  ok=%v, want %v", i, ok, true)
+			return
+		}
+	}
+}
+func TestDelete(t *testing.T) {
+	t.Run("Delete 1", func(t *testing.T) {
+		for j := -100; j <= 1100; j++ {
+			tree := newBTree()
+			for i := 1; i <= 1000; i++ {
+				if got := Insert(tree, i, i+1000); !got {
+					t.Errorf("Insert(%v) = %v, want %v", i, got, true)
+					return
+				}
+			}
+			c0 := Loop(tree, true, nil, nil, func(key IKey, value IValue) {})
+			ok := DeleteKey(tree, j)
+			c1 := Loop(tree, true, nil, nil, func(key IKey, value IValue) {})
+			if j < 1 || j > 1000 {
+				if ok {
+					t.Errorf("Delete(%v) = %v, want %v", j, ok, false)
+					return
+				}
+				if c1 != c0 {
+					t.Errorf("Before = %v, after %v", c0, c1)
+					return
+				}
+			}
+			if j >= 1 && j <= 1000 {
+				if !ok {
+					t.Errorf("Delete(%v) = %v, want %v", j, ok, true)
+					return
+				}
+				if c1 != c0-1 {
+					t.Errorf("Before = %v, after %v", c0, c1)
+					return
+				}
+			}
+		}
+	})
+	t.Run("Delete fill", func(t *testing.T) {
+		num := 100
+		for j := -100; j <= num+100; j++ {
+			tree := newBTree()
+			for i := 1; i <= num; i++ {
+				if got := Insert(tree, i, i+1000); !got {
+					t.Errorf("Insert(%v) = %v, want %v", i, got, true)
+					return
+				}
+			}
+			for i := -100; i <= j; i++ {
+				c0 := Loop(tree, true, nil, nil, func(key IKey, value IValue) {})
+				ok := DeleteKey(tree, i)
+				c1 := Loop(tree, true, nil, nil, func(key IKey, value IValue) {})
+				if i < 1 || i > num {
+					if ok {
+						t.Errorf("Delete(%v) = %v, want %v", i, ok, false)
+						return
+					}
+					if c1 != c0 {
+						t.Errorf("Before = %v, after %v", c0, c1)
+						return
 					}
 				}
-				first = false
-				old = key.(int)
-				//fmt.Println(key, value)
-			})
-			if num != 201 {
-				t.Errorf("Count %v, want %v", num, 201)
+				if i >= 1 && i <= num {
+					if !ok {
+						t.Errorf("Delete(%v) = %v, want %v", i, ok, true)
+						return
+					}
+					if c1 != c0-1 {
+						t.Errorf("Before = %v, after %v", c0, c1)
+						return
+					}
+				}
+			}
+		}
+	})
+	t.Run("Delete fill 2", func(t *testing.T) {
+		num := 100
+		for j := num + 100; j >= -100; j-- {
+			tree := newBTree()
+			for i := 1; i <= num; i++ {
+				if got := Insert(tree, i, i+1000); !got {
+					t.Errorf("Insert(%v) = %v, want %v", i, got, true)
+					return
+				}
+			}
+			for i := num + 100; i > j; i-- {
+				c0 := Loop(tree, true, nil, nil, func(key IKey, value IValue) {})
+				ok := DeleteKey(tree, i)
+				c1 := Loop(tree, true, nil, nil, func(key IKey, value IValue) {})
+				if i < 1 || i > num {
+					if ok {
+						t.Errorf("Delete(%v) = %v, want %v", i, ok, false)
+						return
+					}
+					if c1 != c0 {
+						t.Errorf("Before = %v, after %v", c0, c1)
+						return
+					}
+				}
+				if i >= 1 && i <= num {
+					if !ok {
+						t.Errorf("Delete(%v) = %v, want %v", i, ok, true)
+						return
+					}
+					if c1 != c0-1 {
+						t.Errorf("Before = %v, after %v", c0, c1)
+						return
+					}
+				}
 			}
 		}
 	})
