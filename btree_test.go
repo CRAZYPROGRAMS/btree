@@ -128,7 +128,7 @@ func testLoop(t *testing.T, ASC bool, minInsert int, maxInsert int, minLoopKey I
 	first := true
 	countKey := 0
 	perv := 0
-	countKey2 := Loop(tree, ASC, minLoopKey, maxLoopKey, func(key IKey, value IValue) {
+	countKey2, _ := Loop(tree, ASC, minLoopKey, maxLoopKey, func(key IKey, value IValue) bool {
 		if first {
 			minKey = key.(int)
 			maxKey = key.(int)
@@ -138,12 +138,12 @@ func testLoop(t *testing.T, ASC bool, minInsert int, maxInsert int, minLoopKey I
 			if ASC {
 				if perv >= key.(int) {
 					t.Errorf("ASC %v < %v", perv, key.(int))
-					return
+					return false
 				}
 			} else {
 				if perv <= key.(int) {
 					t.Errorf("DESC %v > %v", perv, key.(int))
-					return
+					return false
 				}
 			}
 			perv = key.(int)
@@ -155,6 +155,7 @@ func testLoop(t *testing.T, ASC bool, minInsert int, maxInsert int, minLoopKey I
 			maxKey = key.(int)
 		}
 		countKey++
+		return true
 	})
 	if countKey2 != countKey {
 		t.Errorf("count = %v, want %v", countKey2, countKey)
@@ -244,7 +245,37 @@ func TestInsert(t *testing.T) {
 			}
 		}
 	})
-
+	t.Run("Insert to center", func(t *testing.T) {
+		tree := newBTree()
+		for i := 1; i <= 1000; i++ {
+			n := i
+			if i%2 == 0 {
+				n = 1002 - i
+			}
+			if got := Insert(tree, n, n+1000); !got {
+				t.Errorf("Insert(%v) = %v, want %v", n, got, true)
+				return
+			}
+		}
+		for i := -1000; i <= 0; i++ {
+			if got := ContainKey(tree, i); got {
+				t.Errorf("ContainKey(%v) = %v, want %v", i, got, false)
+				return
+			}
+		}
+		for i := 1; i <= 1000; i++ {
+			if got := ContainKey(tree, i); !got {
+				t.Errorf("ContainKey(%v) = %v, want %v", i, got, true)
+				return
+			}
+		}
+		for i := 1001; i <= 2000; i++ {
+			if got := ContainKey(tree, i); got {
+				t.Errorf("ContainKey(%v) = %v, want %v", i, got, false)
+				return
+			}
+		}
+	})
 	t.Run("Delete", func(t *testing.T) {
 		tree := newBTree()
 		for i := 1000; i >= 1; i-- {
@@ -305,7 +336,7 @@ func TestLoopPage(t *testing.T) {
 	LeafMinLevel := 0
 	LeafMaxLevel := 0
 	NumPage := 0
-	p := LoopPage(tree, func(page IPage, keyMin IKey, keyMax IKey, level int) {
+	p, _ := LoopPage(tree, func(page IPage, keyMin IKey, keyMax IKey, level int) bool {
 		NumPage++
 		count += page.Count()
 		if MaxLevel < level {
@@ -325,6 +356,7 @@ func TestLoopPage(t *testing.T) {
 				}
 			}
 		}
+		return true
 	})
 	if MaxLevel != LeafMinLevel || LeafMinLevel != LeafMaxLevel {
 		t.Errorf("MaxLevel %v, LeafMin %v, LeafMax %v", MaxLevel, LeafMinLevel, LeafMaxLevel)
@@ -373,9 +405,9 @@ func TestDelete(t *testing.T) {
 					return
 				}
 			}
-			c0 := Loop(tree, true, nil, nil, func(key IKey, value IValue) {})
+			c0, _ := Loop(tree, true, nil, nil, func(key IKey, value IValue) bool { return true })
 			ok := DeleteKey(tree, j)
-			c1 := Loop(tree, true, nil, nil, func(key IKey, value IValue) {})
+			c1, _ := Loop(tree, true, nil, nil, func(key IKey, value IValue) bool { return true })
 			if j < 1 || j > 1000 {
 				if ok {
 					t.Errorf("Delete(%v) = %v, want %v", j, ok, false)
@@ -409,9 +441,9 @@ func TestDelete(t *testing.T) {
 				}
 			}
 			for i := -100; i <= j; i++ {
-				c0 := Loop(tree, true, nil, nil, func(key IKey, value IValue) {})
+				c0, _ := Loop(tree, true, nil, nil, func(key IKey, value IValue) bool { return true })
 				ok := DeleteKey(tree, i)
-				c1 := Loop(tree, true, nil, nil, func(key IKey, value IValue) {})
+				c1, _ := Loop(tree, true, nil, nil, func(key IKey, value IValue) bool { return true })
 				if i < 1 || i > num {
 					if ok {
 						t.Errorf("Delete(%v) = %v, want %v", i, ok, false)
@@ -446,9 +478,9 @@ func TestDelete(t *testing.T) {
 				}
 			}
 			for i := num + 100; i > j; i-- {
-				c0 := Loop(tree, true, nil, nil, func(key IKey, value IValue) {})
+				c0, _ := Loop(tree, true, nil, nil, func(key IKey, value IValue) bool { return true })
 				ok := DeleteKey(tree, i)
-				c1 := Loop(tree, true, nil, nil, func(key IKey, value IValue) {})
+				c1, _ := Loop(tree, true, nil, nil, func(key IKey, value IValue) bool { return true })
 				if i < 1 || i > num {
 					if ok {
 						t.Errorf("Delete(%v) = %v, want %v", i, ok, false)

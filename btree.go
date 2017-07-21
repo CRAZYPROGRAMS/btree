@@ -135,8 +135,10 @@ func Insert(tree IBTree, key IKey, value IValue) bool {
 	}
 	return insertNonFull(tree, page, key, value)
 }
-func loopPageASC(tree IBTree, page IPage, keyMin IKey, keyMax IKey, loop func(key IKey, value IValue)) int {
+func loopPageASC(tree IBTree, page IPage, keyMin IKey, keyMax IKey, loop func(key IKey, value IValue) (next bool)) (int, bool) {
 	var link IAddress
+	var n int
+	var next bool
 	num := 0
 	start := 0
 	end := page.Count()
@@ -154,19 +156,29 @@ func loopPageASC(tree IBTree, page IPage, keyMin IKey, keyMax IKey, loop func(ke
 		key := page.Key(i)
 		if !page.Leaf() {
 			link = page.Link(i)
-			num += loopPageASC(tree, tree.Page(link), keyMin, keyMax, loop)
+			if n, next = loopPageASC(tree, tree.Page(link), keyMin, keyMax, loop); !next {
+				return num + n, false
+			}
+			num += n
 		}
 		num++
-		loop(key, page.Value(i))
+		if !loop(key, page.Value(i)) {
+			return num, false
+		}
 	}
 	if !page.Leaf() {
 		link = page.Link(end)
-		num += loopPageASC(tree, tree.Page(link), keyMin, keyMax, loop)
+		if n, next = loopPageASC(tree, tree.Page(link), keyMin, keyMax, loop); !next {
+			return num + n, false
+		}
+		num += n
 	}
-	return num
+	return num, true
 }
-func loopPageDESC(tree IBTree, page IPage, keyMin IKey, keyMax IKey, loop func(key IKey, value IValue)) int {
+func loopPageDESC(tree IBTree, page IPage, keyMin IKey, keyMax IKey, loop func(key IKey, value IValue) (next bool)) (int, bool) {
 	var link IAddress
+	var n int
+	var next bool
 	num := 0
 	start := 0
 	end := page.Count()
@@ -184,43 +196,64 @@ func loopPageDESC(tree IBTree, page IPage, keyMin IKey, keyMax IKey, loop func(k
 		key := page.Key(i)
 		if !page.Leaf() {
 			link = page.Link(i + 1)
-			num += loopPageDESC(tree, tree.Page(link), keyMin, keyMax, loop)
+			if n, next = loopPageDESC(tree, tree.Page(link), keyMin, keyMax, loop); !next {
+				return num + n, false
+			}
+			num += n
 		}
 		num++
-		loop(key, page.Value(i))
+		if !loop(key, page.Value(i)) {
+			return num, false
+		}
 	}
 
 	if !page.Leaf() {
 		link = page.Link(start)
-		num += loopPageDESC(tree, tree.Page(link), keyMin, keyMax, loop)
+		if n, next = loopPageDESC(tree, tree.Page(link), keyMin, keyMax, loop); !next {
+			return num + n, false
+		}
+		num += n
 	}
-	return num
+	return num, true
 }
-func Loop(tree IBTree, ASC bool, keyMin IKey, keyMax IKey, loop func(key IKey, value IValue)) int {
+func Loop(tree IBTree, ASC bool, keyMin IKey, keyMax IKey, loop func(key IKey, value IValue) (next bool)) (int, bool) {
 	if ASC {
 		return loopPageASC(tree, tree.Root(), keyMin, keyMax, loop)
 	}
 	return loopPageDESC(tree, tree.Root(), keyMin, keyMax, loop)
 }
-func loopPage(tree IBTree, page IPage, keyMin IKey, keyMax IKey, level int, loop func(page IPage, keyMin IKey, keyMax IKey, level int)) int {
+func loopPage(tree IBTree, page IPage, keyMin IKey, keyMax IKey, level int, loop func(page IPage, keyMin IKey, keyMax IKey, level int) (next bool)) (int, bool) {
+	var next bool
+	var n int
 	num := 1
-	loop(page, keyMin, keyMax, level)
+	if !loop(page, keyMin, keyMax, level) {
+		return num, false
+	}
 	if !page.Leaf() {
 		count := page.Count()
 		if count > 0 {
 			ValueLeft := page.Value(0)
-			num += loopPage(tree, tree.Page(page.Link(0)), nil, ValueLeft, level+1, loop)
+			if n, next = loopPage(tree, tree.Page(page.Link(0)), nil, ValueLeft, level+1, loop); !next {
+				return num + n, false
+			}
+			num = num + n
 			for i := 1; i < count; i++ {
 				ValueRight := page.Value(0)
-				num += loopPage(tree, tree.Page(page.Link(i)), ValueLeft, ValueRight, level+1, loop)
+				if n, next = loopPage(tree, tree.Page(page.Link(i)), ValueLeft, ValueRight, level+1, loop); !next {
+					return num + n, false
+				}
+				num = num + n
 				ValueLeft = ValueRight
 			}
-			num += loopPage(tree, tree.Page(page.Link(count)), page.Value(count-1), nil, level+1, loop)
+			if n, next = loopPage(tree, tree.Page(page.Link(count)), page.Value(count-1), nil, level+1, loop); !next {
+				return num + n, false
+			}
+			num = num + n
 		}
 	}
-	return num
+	return num, true
 }
-func LoopPage(tree IBTree, loop func(page IPage, keyMin IKey, keyMax IKey, level int)) int {
+func LoopPage(tree IBTree, loop func(page IPage, keyMin IKey, keyMax IKey, level int) (next bool)) (int, bool) {
 	return loopPage(tree, tree.Root(), nil, nil, 0, loop)
 }
 func GetValue(tree IBTree, key IKey) (IValue, bool) {
@@ -237,6 +270,23 @@ func GetValue(tree IBTree, key IKey) (IValue, bool) {
 		return page.Value(pos), true
 	}
 	return nil, false
+}
+func SetValue(tree IBTree, key IKey, value IValue) bool {
+	page := tree.Root()
+	for !page.Leaf() {
+		pos, eq := findKey(tree, page, key)
+		if eq {
+			page.SetValue(pos, value)
+			return true
+		}
+		page = tree.Page(page.Link(pos))
+	}
+	pos, eq := findKey(tree, page, key)
+	if eq {
+		page.SetValue(pos, value)
+		return true
+	}
+	return false
 }
 func findLeaf(tree IBTree, page IPage, positions []int, pages []IPage, Left bool) IPage {
 	leaf := false
@@ -449,4 +499,18 @@ func DeleteKey(tree IBTree, key IKey) bool {
 		tree.FreePage(p1)
 	}
 	return true
+}
+func CreateRoot(tree IBTree, NullKey IKey, NullValue IValue, NullLink IAddress) {
+	root := tree.Root()
+	max := root.MaxCount()
+	root.SetLeaf(true)
+	root.SetCount(max)
+	for index := 0; index < max; index++ {
+		root.SetKey(index, NullKey)
+		root.SetValue(index, NullValue)
+		root.SetLink(index, NullLink)
+	}
+	root.SetLink(max, NullLink)
+	root.SetCount(0)
+	root.Write()
 }
